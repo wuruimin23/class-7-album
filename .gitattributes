@@ -1,0 +1,2 @@
+# 统一使用 LF 换行, 防止 Windows 编辑器引入 CRLF 导致 build.cjs 锚点失配
+* text=auto eol=lf
