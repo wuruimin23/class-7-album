@@ -1,6 +1,6 @@
 node_modules/
-hosting/
-public/
+/hosting/
+/public/
 functions/class7-photo-api/index.cjs
 functions/class7-photo-api/public/
 src/accounts.ts

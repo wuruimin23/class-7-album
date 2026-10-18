@@ -33,12 +33,27 @@ function preservePhotoOrder(previous,photos){const remaining=new Map(photos.map(
 let imageLayoutTimer;
 function scheduleImageLayout(){clearTimeout(imageLayoutTimer);imageLayoutTimer=setTimeout(()=>renderWall({preserveOrder:true,preservePosition:true}),100);}
 function syncLaneHeights(){for(const lane of app.lanes)lane.height=lane.group.offsetHeight;}
+const WALL_CONNECTION={concurrency:4,retries:1,warmMax:2,warmed:new Set(),warmedCount:0};
+function wallOrigin(src){try{return new URL(src,location.href).origin;}catch{return null;}}
+function warmWallConnections(src){
+  const origin=wallOrigin(src);
+  if(!origin||origin===location.origin||WALL_CONNECTION.warmed.has(origin))return;
+  WALL_CONNECTION.warmed.add(origin);
+  for(const rel of ['preconnect','dns-prefetch']){const link=document.createElement('link');link.rel=rel;link.href=origin;if(rel==='preconnect')link.crossOrigin='anonymous';document.head.append(link);}
+}
+function primeWallConnection(src){
+  if(WALL_CONNECTION.warmedCount>=WALL_CONNECTION.warmMax)return;
+  WALL_CONNECTION.warmedCount++;
+  fetch(src,{headers:{Range:'bytes=0-0'}}).then(response=>response.body?.cancel?.()).catch(()=>{});
+}
 function pumpWallImages(state){
   if(app.wallLoader!==state)return;
-  while(state.active<4&&state.queue.length){
+  while(state.active<WALL_CONNECTION.concurrency&&state.queue.length){
     const {img,src}=state.queue.shift();if(!img.isConnected)continue;state.active++;
-    let finished=false;const done=()=>{if(finished)return;finished=true;img.removeEventListener('load',done);img.removeEventListener('error',done);state.active--;pumpWallImages(state);};
-    img.addEventListener('load',done);img.addEventListener('error',done);img.fetchPriority=state.started++<4?'high':'auto';img.src=src;delete img.dataset.loadSrc;
+    let finished=false;
+    const done=()=>{if(finished)return;finished=true;img.removeEventListener('load',done);img.removeEventListener('error',onError);state.active--;pumpWallImages(state);};
+    const onError=()=>{if(img.dataset.wallRetry){done();return;}img.dataset.wallRetry='1';setTimeout(()=>{if(!finished&&img.isConnected)img.src=src;else done();},400);};
+    img.addEventListener('load',done);img.addEventListener('error',onError);img.fetchPriority=state.started++<4?'high':'auto';img.src=src;delete img.dataset.loadSrc;
   }
 }
 function beginWallImages(wall){
@@ -51,7 +66,7 @@ function beginWallImages(wall){
     state.queue.sort((a,b)=>a.priority-b.priority);pumpWallImages(state);
   },{root:wall,rootMargin:'180px 0px'});
 }
-function observeWallImage(img,photo){if(app.wallLoader?.observer){img.dataset.loadSrc=photo.src;app.wallLoader.observer.observe(img);}else{img.loading='lazy';img.src=photo.src;}}
+function observeWallImage(img,photo){warmWallConnections(photo.src);if(app.wallLoader?.observer){img.dataset.loadSrc=photo.src;app.wallLoader.observer.observe(img);if(!observeWallImage.primed){observeWallImage.primed=true;primeWallConnection(photo.src);}}else{img.loading='lazy';img.src=photo.src;}}
 function toast(message){$('#toast span').textContent=message;$('#toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{$('#toast').hidden=true;},4200);}
 function showDialog(id){const dialog=document.getElementById(id);if(!dialog.open)dialog.showModal();updateMotion();}
 function closeDialog(id){document.getElementById(id).close();updateMotion();}
